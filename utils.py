@@ -121,20 +121,20 @@ def format_tools_description(tools: List[BaseTool]) -> str:
             example_args = json.dumps(tool.example, indent=2) if hasattr(tool, 'example') else ""
             
             tool_doc = f"""
-## 🛠️ {tool.name}
-**{tool.description}**
+            ## 🛠️ {tool.name}
+            **{tool.description}**
 
-### Parameters:
-{param_table}
+            ### Parameters:
+            {param_table}
 
-### Example Usage:
-```python
-from agent_tools import {tool.name.replace('-', '_')}
+            ### Example Usage:
+            ```python
+            from agent_tools import {tool.name.replace('-', '_')}
 
-result = {tool.name}(
-    {example_args}
-)
-```"""
+            result = {tool.name}(
+                {example_args}
+            )
+            ```"""
             tool_docs.append(tool_doc)
         except Exception as e:
             logger.error(f"Error documenting tool {tool.name}: {str(e)}")

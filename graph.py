@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 class GraphConfiguration:
     """Manejador centralizado de configuración del grafo"""
     def __init__(self):
-        self.llm_model = "gpt-4o"
-        self.llm_temperature = 0.1
+        self.llm_model = "gpt-4o-mini"
+        self.llm_temperature = 0
         self.max_research_cycles = 3
         self.max_feedback_attempts = 2
         self._validate_environment()
@@ -40,7 +40,7 @@ class GraphConfiguration:
         return ChatOpenAI(
             model=self.llm_model,
             temperature=self.llm_temperature,
-            model_kwargs={"response_format": {"type": "json_object"}}
+            #model_kwargs={"response_format": {"type": "json_object"}}
         )
 
 def setup_decision_making_node(config: GraphConfiguration) -> Callable[[AgentState], Dict[str, Any]]:
@@ -174,6 +174,34 @@ def create_workflow() -> Runnable:
     config = GraphConfiguration()
     workflow = StateGraph(AgentState)
 
+    # Should continue function
+    def should_continue(state: AgentState):
+        """Check if the agent should continue or end."""
+        messages = state["messages"]
+        last_message = messages[-1]
+
+        # End execution if there are no tool calls
+        if last_message.tool_calls:
+            return "continue"
+        else:
+            return "end"
+    
+    # Task router function
+    def router(state: AgentState):
+        """Router directing the user query to the appropriate branch of the workflow."""
+        if state["requires_research"]:
+            return "planning"
+        else:
+            return "end"
+    
+    # Final answer router function
+    def final_answer_router(state: AgentState):
+        """Router to end the workflow or improve the answer."""
+        if state["is_good_answer"]:
+            return "end"
+        else:
+            return "planning"
+    
     # Registro de nodos
     nodes = {
         "decision_making": setup_decision_making_node(config),
@@ -189,9 +217,14 @@ def create_workflow() -> Runnable:
     # Configuración de flujo
     workflow.set_entry_point("decision_making")
     
+    # Add edges between nodes
     workflow.add_conditional_edges(
         "decision_making",
-        lambda state: "planning" if state["requires_research"] else END
+        router,
+        {
+            "planning": "planning",
+            "end": END,
+        }
     )
     
     workflow.add_edge("planning", "agent")
@@ -199,12 +232,20 @@ def create_workflow() -> Runnable:
     
     workflow.add_conditional_edges(
         "agent",
-        lambda state: "tools" if state["messages"][-1].tool_calls else "judge"
+        should_continue,
+        {
+            "continue": "tools",
+            "end": "judge",
+        },
     )
     
     workflow.add_conditional_edges(
         "judge",
-        lambda state: "planning" if not state["is_good_answer"] else END
+        final_answer_router,
+        {
+            "planning": "planning",
+            "end": END,
+        }
     )
 
     return workflow.compile()

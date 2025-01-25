@@ -103,6 +103,5 @@ class JudgeOutput(BaseModel):
             raise ValueError("Se requiere feedback cuando la respuesta no es satisfactoria")
         return self
 
-AgentState.update_forward_refs()
 SearchStep = Literal["decision_making", "planning", "tools", "agent", "judge"]
 ValidationResult = Annotated[dict, Field(description="Resultado de validación del estado")]

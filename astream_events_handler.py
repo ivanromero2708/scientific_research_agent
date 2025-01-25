@@ -2,7 +2,7 @@ import time
 import logging
 from typing import Optional
 import streamlit as st
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.runnables import Runnable
 from graph import app_runnable
 
