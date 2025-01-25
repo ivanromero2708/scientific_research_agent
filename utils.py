@@ -11,10 +11,6 @@ from IPython.display import display, Markdown
 
 logger = logging.getLogger(__name__)
 
-# --------------------------
-# PROMPT TEMPLATES (CORRECTED FORMAT)
-# --------------------------
-
 def current_date():
     return datetime.now().strftime("%Y-%m-%d")
 
@@ -97,7 +93,7 @@ judge_prompt = """**Role**: Scientific Quality Reviewer
 | Criterion          | Weight | Description                  |
 |--------------------|--------|------------------------------|
 | Relevance          | 30%    | Addresses research question  |
-| Rigor              | 25%    | Methodology quality           |
+| Rigor              | 25%    | Methodology quality          |
 | Currency           | 20%    | ≤5 year sources              |
 | Transparency       | 15%    | Disclosure of limitations    |
 | Impact             | 10%    | Practical significance       |
@@ -108,10 +104,6 @@ judge_prompt = """**Role**: Scientific Quality Reviewer
 3. Minor Revision Needed
 4. Accept with Suggestions
 5. Publish as Is"""
-
-# --------------------------
-# TOOL FORMATTING (CORRECTED)
-# --------------------------
 
 def format_tools_description(tools: List[BaseTool]) -> str:
     """Generate professional documentation for research tools"""
@@ -150,10 +142,6 @@ result = {tool.name}(
     
     return "\n\n---\n\n".join(tool_docs)
 
-# --------------------------
-# STREAM HANDLING (CORRECTED)
-# --------------------------
-
 async def print_stream(app, input: str) -> Optional[BaseMessage]:
     """Execute and display research workflow with scientific formatting"""
     session_header = f"### 🔬 Research Session - {datetime.now().strftime('%Y-%m-%d %H:%M')}\n**Query**: \"{input[:100]}{'...' if len(input) > 100 else ''}\""
@@ -187,17 +175,11 @@ async def print_stream(app, input: str) -> Optional[BaseMessage]:
     
     return messages[-1] if messages else None
 
-# --------------------------
-# FORMATTING UTILITIES (CORRECTED)
-# --------------------------
-
 def _format_research_output(text: str) -> str:
-    """Format scientific content with proper typography"""
-    text = re.sub(r"(\d)\s([%‰°C])", r"\1\u00A0\2", text)  # Non-breaking spaces
-    text = re.sub(r"(\d+)(\.)(\d+)", r"\1\2\3", text)      # Decimal alignment
-    text = re.sub(r"\b(\d+)\s*-\s*(\d+)\b", r"\1–\2", text)  # En-dash
+    text = re.sub(r"(\d)\s([%‰°C])", r"\1\u00A0\2", text)
+    text = re.sub(r"(\d+)(\.)(\d+)", r"\1\2\3", text)
+    text = re.sub(r"\b(\d+)\s*-\s*(\d+)\b", r"\1–\2", text)
     
-    # Highlight key terms
     keywords = {
         r"\bhypothesis\b": "**hypothesis**",
         r"\bmethodology\b": "**methodology**",
@@ -210,7 +192,6 @@ def _format_research_output(text: str) -> str:
     return text
 
 def _format_tool_data(data: str) -> str:
-    """Structure tool output for scientific readability"""
     try:
         json_data = json.loads(data)
         formatted = json.dumps(json_data, indent=2)
@@ -220,12 +201,7 @@ def _format_tool_data(data: str) -> str:
     except json.JSONDecodeError:
         return data[:2000]
 
-# --------------------------
-# VALIDATION (CORRECTED)
-# --------------------------
-
 def validate_research_schema(data: Dict[str, Any]) -> bool:
-    """Validate scientific data against ISO 2145 schema"""
     schema = {
         "type": "object",
         "properties": {

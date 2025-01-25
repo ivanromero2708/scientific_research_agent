@@ -1,6 +1,6 @@
 import time
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional
 import streamlit as st
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
@@ -42,7 +42,7 @@ async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator
     Maneja el flujo de eventos asíncrono con seguimiento en tiempo real
     
     Args:
-        st_messages: Historial de mensajes del chat
+        st_messages: Historial de mensajes del chat (ya no vacío)
         st_placeholder: Contenedor de Streamlit para mostrar actualizaciones
     
     Returns:
@@ -50,16 +50,16 @@ async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator
     """
     tracker = ToolExecutionTracker()
     final_text = ""
-    current_progress = 0.0  # Variable independiente para el progreso
+    current_progress = 0.0  
     
     try:
         # Inicializar barra de progreso
-        progress_bar = st_placeholder.progress(0.0, text="🚀 Iniciando proceso de investigación...")
+        progress_bar = st_placeholder.progress(current_progress, text="🚀 Iniciando proceso de investigación...")
         
         async for event in app_runnable.astream_events({"messages": st_messages}, version="v2"):
             event_type = event["event"]
             
-            # Actualización inteligente del progreso
+            # Actualizar progreso
             current_progress = min(current_progress + 0.03, 0.95)
             progress_bar.progress(current_progress, text="🔍 Analizando consulta...")
             
@@ -71,7 +71,6 @@ async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator
                     st.markdown(f"```markdown\n{final_text}\n```", unsafe_allow_html=True)
             
             elif event_type == "on_tool_start":
-                # Configurar UI para nueva herramienta
                 tool_id = event["run_id"]
                 with st_placeholder.container():
                     cols = st.columns([1, 4])
@@ -79,7 +78,7 @@ async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator
                         st.subheader(f"🛠️ {event['name']}")
                         st.caption(f"ID: `{tool_id[:8]}`")
                     with cols[1]:
-                        with st.status(f"⚙️ Ejecutando {event['name']}...", expanded=True) as status:
+                        with st.expander(f"⚙️ Ejecutando {event['name']}...", expanded=True):
                             input_data = event['data'].get('input', {})
                             st.write(f"**Input:**\n`{truncate_text(str(input_data), 300)}`")
                             output_placeholder = st.empty()
@@ -88,7 +87,6 @@ async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator
                     st.toast(f"Iniciando herramienta: {event['name']}", icon="⚙️")
             
             elif event_type == "on_tool_end":
-                # Mostrar resultados de herramienta
                 tool_id = event["run_id"]
                 output = event["data"].get("output", "")
                 error = event["data"].get("error")
@@ -104,7 +102,6 @@ async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator
                 tracker.tools[tool_id]['container'].markdown(output_text)
                 tracker.complete_tool(tool_id, output)
                 
-                # Actualizar progreso final
                 current_progress = min(current_progress + 0.1, 0.95)
                 progress_bar.progress(current_progress, text=f"✅ {event['name']} completada")
     
@@ -115,7 +112,6 @@ async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator
         return "Lo siento, hubo un error procesando tu solicitud"
     
     finally:
-        # Completar y limpiar la barra de progreso
         if 'progress_bar' in locals():
             progress_bar.progress(1.0, text="🏁 Proceso completado")
             time.sleep(0.5)

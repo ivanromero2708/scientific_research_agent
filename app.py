@@ -36,7 +36,7 @@ def setup_api_key():
             "OpenAI API Key",
             type="password",
             value=os.getenv("OPENAI_API_KEY", ""),
-            help="Obtén tu clave en https://platform.openai.com/api-keys"
+            help="Obtén tu clave en https://platform.openai.com/account/api-keys"
         )
         
         core_key = st.text_input(
@@ -47,10 +47,10 @@ def setup_api_key():
         )
         
         if st.button("💾 Guardar Claves", type="primary"):
-            if not openai_key.startswith("sk-"):
-                st.error("¡Clave OpenAI inválida! Debe comenzar con 'sk-'")
+            if not openai_key:
+                st.error("¡Clave OpenAI requerida!")
                 return
-                
+            
             if not core_key:
                 st.error("¡Clave CORE requerida!")
                 return
@@ -63,8 +63,9 @@ def setup_api_key():
             st.rerun()
 
 def initialize_chat():
-    """Inicializa el estado del chat"""
-    if "messages" not in st.session_state:
+    """Inicializa el estado del chat con al menos un mensaje"""
+    # Si no existe la variable en session_state o está vacía, la llenamos con un mensaje inicial
+    if "messages" not in st.session_state or not st.session_state.messages:
         st.session_state.messages = [
             AIMessage(content="¡Hola! Soy tu asistente de investigación. ¿En qué tema deseas profundizar hoy?")
         ]
@@ -105,13 +106,12 @@ def show_welcome_expander():
             """)
 
 def clear_conversation():
-    """Reinicia la conversación"""
+    """Reinicia la conversación con al menos un mensaje"""
     st.session_state.messages = [
         AIMessage(content="¡Conversación reiniciada! ¿En qué tema deseas profundizar ahora?")
     ]
     st.session_state.processing = False
     st.rerun()
-
 
 def show_tool_monitoring():
     """Muestra el panel de herramientas ejecutadas"""
@@ -124,7 +124,7 @@ def show_tool_monitoring():
             return
             
         for idx, tool in enumerate(st.session_state.tool_executions, 1):
-            with st.container(border=True):
+            with st.container():
                 cols = st.columns([1, 4])
                 with cols[0]:
                     st.markdown(f"**Herramienta #{idx}**")
@@ -155,9 +155,7 @@ def main():
         st.info("⚠️ Por favor configura tus API Keys en la barra lateral para comenzar")
         return
 
-    # Nuevo: Panel de supervisión antes del chat
-    show_tool_monitoring()
-    
+    show_tool_monitoring()  # Panel de supervisión
     initialize_chat()
     show_welcome_expander()
     render_chat_history()

@@ -55,7 +55,6 @@ class AgentState(BaseModel):
         ge=0,
         le=3,
         description="Número de veces que se ha solicitado feedback humano",
-        json_schema_extra={"example": 0}
     )
     
     is_good_answer: bool = Field(
@@ -66,9 +65,8 @@ class AgentState(BaseModel):
     messages: Annotated[
         List[BaseMessage],
         Field(
-            min_length=1,
+            min_length=1,  # Exigimos que haya al menos un mensaje
             description="Historial de mensajes de la conversación",
-            json_schema_extra={"format": "message-list"}
         )
     ]
     
@@ -89,7 +87,6 @@ class AgentState(BaseModel):
         description="Número de ciclos completados de búsqueda e investigación"
     )
 
-    # Validadores
     @field_validator('messages')
     @classmethod
     def validate_messages(cls, messages: List[BaseMessage]) -> List[BaseMessage]:
@@ -113,7 +110,6 @@ class AgentState(BaseModel):
             
         return self
 
-    # Métodos de utilidad
     def add_message(self, message: BaseMessage) -> None:
         """Añade un nuevo mensaje al estado y actualiza timestamps"""
         self.messages.append(message)
@@ -136,7 +132,6 @@ class SearchPapersInput(BaseModel):
         min_length=3,
         max_length=200,
         description="Consulta de búsqueda para papers científicos",
-        json_schema_extra={"example": "machine learning in drug discovery"}
     )
     
     max_papers: int = Field(
@@ -144,7 +139,6 @@ class SearchPapersInput(BaseModel):
         ge=1,
         le=10,
         description="Número máximo de papers a retornar",
-        json_schema_extra={"example": 3}
     )
 
     @field_validator('query')
@@ -163,12 +157,10 @@ class DecisionMakingOutput(BaseModel):
         description="Indica si la consulta requiere investigación adicional"
     )
     
+    # Eliminamos min_length y max_length para evitar invalid schema en openai
     answer: Optional[str] = Field(
         default=None,
-        min_length=10,
-        max_length=2000,
-        description="Respuesta directa si no se requiere investigación",
-        json_schema_extra={"example": "La teoría de la relatividad fue desarrollada por Albert Einstein en 1905."}
+        description="Respuesta directa si no se requiere investigación"
     )
 
     @model_validator(mode='after')
@@ -184,12 +176,10 @@ class JudgeOutput(BaseModel):
         description="Indica si la respuesta cumple con los criterios de calidad"
     )
     
+    # También quitamos min_length, max_length de 'feedback' si causara problemas
     feedback: Optional[str] = Field(
         default=None,
-        min_length=20,
-        max_length=1000,
         description="Feedback detallado para mejorar la respuesta",
-        json_schema_extra={"example": "Faltan citar fuentes recientes (últimos 5 años)"}
     )
 
     @model_validator(mode='after')
@@ -198,7 +188,6 @@ class JudgeOutput(BaseModel):
             raise ValueError("Se requiere feedback cuando la respuesta no es satisfactoria")
         return self
 
-# Tipos especializados para el grafo
 AgentState.update_forward_refs()
 SearchStep = Literal["decision_making", "planning", "tools", "agent", "judge"]
 ValidationResult = Annotated[dict, Field(description="Resultado de validación del estado")]

@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class GraphConfiguration:
     """Clase para manejar la configuración del grafo"""
     def __init__(self):
-        self.llm_model = "gpt-4-turbo"
+        self.llm_model = "gpt-4o-mini"
         self.llm_temperature = 0.1
         self.max_research_cycles = 3
         self.max_feedback_attempts = 2
@@ -62,7 +62,8 @@ def setup_decision_making_node(config: GraphConfiguration):
     def _decision_making_node(state: AgentState) -> Dict[str, Any]:
         try:
             system_msg = SystemMessage(content=decision_making_prompt)
-            response = llm.with_structured_output(DecisionMakingOutput).invoke(  # Usar la clase directamente
+            # Quitar min_length / max_length en DecisionMakingOutput para no chocar con structured output
+            response = llm.with_structured_output(DecisionMakingOutput).invoke(
                 [system_msg] + state.messages
             )
             
@@ -157,12 +158,12 @@ def setup_agent_node(config: GraphConfiguration):
     def _agent_node(state: AgentState) -> Dict[str, Any]:
         try:
             system_msg = SystemMessage(content=agent_prompt)
-            config = RunnableConfig(metadata={
+            config_run = RunnableConfig(metadata={
                 "user_query": state.messages[-1].content,
                 "research_cycle": state.num_feedback_requests + 1
             })
             
-            response = llm.invoke([system_msg] + state.messages, config=config)
+            response = llm.invoke([system_msg] + state.messages, config=config_run)
             
             logger.debug("Respuesta del agente generada", extra={
                 "content": response.content[:100] + "..." if response.content else ""

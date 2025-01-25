@@ -99,8 +99,10 @@ class CoreAPIWrapper(BaseModel):
 
             formatted_results = []
             for paper in results[:self.top_k_results]:
-                authors = [f"{a.get('given', '')} {a.get('family', '')}".strip() 
-                          for a in paper.get("authors", [])]
+                authors = [
+                    f"{a.get('given', '')} {a.get('family', '')}".strip() 
+                    for a in paper.get("authors", [])
+                ]
                 
                 formatted_results.append({
                     "title": paper.get("title", "Sin título"),
@@ -232,3 +234,4 @@ def ask_human_feedback(question: str) -> str:
 
 # Lista de herramientas disponibles para el agente
 tools = [search_papers, download_paper, ask_human_feedback]
+
