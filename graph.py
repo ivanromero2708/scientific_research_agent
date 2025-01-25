@@ -40,7 +40,7 @@ class GraphConfiguration:
         return ChatOpenAI(
             model=self.llm_model,
             temperature=self.llm_temperature,
-            model_kwargs={"response_format": {"type": "json_object"}}
+            #model_kwargs={"response_format": {"type": "json_object"}}
         )
 
 def setup_decision_making_node(config: GraphConfiguration) -> Callable[[AgentState], Dict[str, Any]]:
@@ -97,7 +97,7 @@ def setup_tools_node() -> Callable[[AgentState], Dict[str, Any]]:
             outputs = []
             
             for tool_call in last_msg.tool_calls:
-                tool = tools_map.get(tool_call["name"])
+                tool = tools_map[tool_call["name"]]
                 if not tool:
                     raise KeyError(f"Herramienta {tool_call['name']} no registrada")
                 

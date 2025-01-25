@@ -1,131 +1,149 @@
+import asyncio
 import time
 import logging
-from typing import Optional
+from typing import Dict, Any
 import streamlit as st
-from langchain_core.messages import AIMessage, BaseMessage
-from langchain_core.runnables import Runnable
+from langchain_core.messages import BaseMessage
 from graph import app_runnable
 
 logger = logging.getLogger(__name__)
 
-class ToolExecutionTracker:
-    """Clase para manejar el estado de ejecución de herramientas"""
+class ResearchSupervisor:
+    """Clase mejorada para gestión del ciclo de investigación"""
     def __init__(self):
-        if "tool_executions" not in st.session_state:
-            st.session_state.tool_executions = []
-        
-        self.tools = {}
-        self.start_time = time.time()
-        self.progress = 0.0
-
-    def add_tool(self, tool_id: str, container: st.delta_generator.DeltaGenerator):
-        """Registra una nueva herramienta en ejecución"""
-        self.tools[tool_id] = {
-            'container': container,
-            'start_time': time.time(),
-            'status': None,
-            'output': None
-        }
-    
-    def complete_tool(self, tool_id: str, output: str):
-        if tool_id in self.tools:
-            tool_data = {
-                "name": self.tools[tool_id]['container']._kwargs["label"],
-                "execution_time": time.time() - self.tools[tool_id]['start_time'],
-                "input": self.tools[tool_id]['input'],
-                "output": output,
-                "status": "success" if not isinstance(output, dict) or "error" not in output else "error"
+        if "research_data" not in st.session_state:
+            st.session_state.research_data = {
+                'executions': [],
+                'current_cycle': 0,
+                'max_cycles': 10  # Aumentamos el límite de ciclos
             }
-            st.session_state.tool_executions.append(tool_data)
+        
+        self.tools: Dict[str, Dict[str, Any]] = {}
+        self._cancelled = False
 
-def truncate_text(text: str, max_length: int = 1000) -> str:
-    """Trunca texto largo con puntos suspensivos manteniendo contexto"""
-    if len(text) > max_length:
-        return text[:max_length//2] + "\n... [CONTENIDO TRUNCADO] ...\n" + text[-max_length//2:]
-    return text
+    def cancel_research(self):
+        """Maneja la cancelación limpia de la investigación"""
+        self._cancelled = True
+        logger.info("Investigación cancelada por el usuario")
+        st.toast("🛑 Investigación detenida", icon="⏹️")
 
-async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator.DeltaGenerator) -> str:
+    def update_progress(self, progress: float, message: str):
+        """Actualiza la barra de progreso de forma segura"""
+        try:
+            if 'progress_bar' in st.session_state:
+                st.session_state.progress_bar.progress(
+                    min(progress, 1.0), 
+                    text=message
+                )
+        except Exception as e:
+            logger.error(f"Error actualizando progreso: {str(e)}")
+
+async def execute_research_flow(
+    messages: list, 
+    placeholder: st.delta_generator.DeltaGenerator
+) -> str:
     """
-    Maneja el flujo de eventos asíncrono con seguimiento en tiempo real
-    
-    Args:
-        st_messages: Historial de mensajes del chat (ya no vacío)
-        st_placeholder: Contenedor de Streamlit para mostrar actualizaciones
-    
-    Returns:
-        Respuesta final del asistente
+    Flujo principal de investigación con manejo robusto de errores
     """
-    if not st_messages or not isinstance(st_messages[0], BaseMessage):
-        st_messages = [AIMessage(content="Iniciando investigación...")]
-    
-    tracker = ToolExecutionTracker()
+    supervisor = ResearchSupervisor()
     final_text = ""
-    current_progress = 0.0   
-    
     
     try:
-        # Inicializar barra de progreso
-        progress_bar = st_placeholder.progress(current_progress, text="🚀 Iniciando proceso de investigación...")
+        # Configuración inicial
+        if 'progress_bar' not in st.session_state:
+            st.session_state.progress_bar = placeholder.progress(0, text="🚀 Iniciando investigación...")
         
-        async for event in app_runnable.astream_events({"messages": st_messages}, version="v2"):
+        research_stream = app_runnable.astream_events(
+            {"messages": messages}, 
+            version="v2",
+            config={"recursion_limit": 20}  # Reducimos la recursión
+        )
+        
+        async for event in research_stream:
+            if supervisor._cancelled:
+                raise asyncio.CancelledError()
+            
             event_type = event["event"]
             
-            # Actualizar progreso
-            current_progress = min(current_progress + 0.03, 0.95)
-            progress_bar.progress(current_progress, text="🔍 Analizando consulta...")
+            # Manejo de ciclo de investigación completo
+            if event_type == "on_chain_start" and event["name"] == "planning":
+                st.session_state.research_data['current_cycle'] += 1
+                logger.debug(f"Ciclo de investigación #{st.session_state.research_data['current_cycle']}")
+                
+                if st.session_state.research_data['current_cycle'] > st.session_state.research_data['max_cycles']:
+                    raise RuntimeError("🔬 Límite máximo de ciclos alcanzado. Revisa los parámetros de búsqueda.")
             
+            # Actualización de progreso dinámico
+            progress_weights = {
+                "on_tool_start": 0.1,
+                "on_tool_end": 0.2,
+                "on_chat_model_stream": 0.05
+            }
+            
+            current_progress = min(
+                st.session_state.progress_bar.value + progress_weights.get(event_type, 0),
+                0.95
+            )
+            supervisor.update_progress(current_progress, "🔍 Analizando información...")
+            
+            # Procesamiento de eventos
             if event_type == "on_chat_model_stream":
-                # Manejar streaming de tokens del modelo
-                chunk = event["data"]["chunk"].content
-                final_text += chunk
-                with st_placeholder.container():
-                    st.markdown(f"```markdown\n{final_text}\n```", unsafe_allow_html=True)
+                final_text += event["data"]["chunk"].content
+                placeholder.markdown(f"```markdown\n{final_text}\n```")
             
             elif event_type == "on_tool_start":
-                tool_id = event["run_id"]
-                with st_placeholder.container():
-                    cols = st.columns([1, 4])
-                    with cols[0]:
-                        st.subheader(f"🛠️ {event['name']}")
-                        st.caption(f"ID: `{tool_id[:8]}`")
-                    with cols[1]:
-                        with st.expander(f"⚙️ Ejecutando {event['name']}...", expanded=True):
-                            input_data = event['data'].get('input', {})
-                            st.write(f"**Input:**\n`{truncate_text(str(input_data), 300)}`")
-                            output_placeholder = st.empty()
-                    
-                    tracker.add_tool(tool_id, output_placeholder)
-                    st.toast(f"Iniciando herramienta: {event['name']}", icon="⚙️")
-            
+                tool_data = {
+                    'id': event["run_id"][:8],
+                    'name': event["name"],
+                    'input': event["data"].get("input", {}),
+                    'start_time': time.time()
+                }
+                
+                with placeholder.container():
+                    cols = st.columns([1, 3])
+                    cols[0].subheader(f"🛠️ {tool_data['name']}")
+                    cols[0].caption(f"ID: `{tool_data['id']}`")
+                    with cols[1].expander("⚙️ Detalles de ejecución", expanded=True):
+                        st.json(tool_data['input'], expanded=False)
+                
+                st.session_state.research_data['executions'].append(tool_data)
+                st.toast(f"Iniciando: {tool_data['name']}", icon="⚡")
+
             elif event_type == "on_tool_end":
-                tool_id = event["run_id"]
-                output = event["data"].get("output", "")
+                output = event["data"].get("output", {})
                 error = event["data"].get("error")
                 
-                exec_time = time.time() - tracker.tools[tool_id]['start_time']
-                output_text = f"⏱️ **Tiempo ejecución:** {exec_time:.1f}s\n\n"
-                
-                if error:
-                    output_text += f"❌ **Error:** \n```\n{truncate_text(str(error), 500)}\n```"
-                else:
-                    output_text += f"📋 **Resultado:** \n```\n{truncate_text(str(output), 800)}\n```"
-                
-                tracker.tools[tool_id]['container'].markdown(output_text)
-                tracker.complete_tool(tool_id, output)
-                
-                current_progress = min(current_progress + 0.1, 0.95)
-                progress_bar.progress(current_progress, text=f"✅ {event['name']} completada")
+                with placeholder.container():
+                    if error:
+                        st.error(f"❌ Error en herramienta:\n```\n{str(error)[:500]}\n```")
+                    else:
+                        st.success(f"✅ Resultado obtenido")
+                        st.json(output, expanded=False)
+
+    except asyncio.CancelledError:
+        logger.warning("Investigación cancelada por el usuario")
+        placeholder.warning("⏹️ Investigación detenida a petición del usuario")
+        return "Operación cancelada"
+    
+    except RuntimeError as e:
+        logger.error(f"Límite de ciclos alcanzado: {str(e)}")
+        placeholder.error(f"⚠️ {str(e)}")
+        return "Límite máximo de iteraciones alcanzado"
     
     except Exception as e:
-        logger.error(f"Error en el flujo de eventos: {str(e)}", exc_info=True)
-        with st_placeholder:
-            st.error(f"🚨 Error crítico: {str(e)}")
-        return "Lo siento, hubo un error procesando tu solicitud"
+        logger.error(f"Error crítico: {str(e)}", exc_info=True)
+        placeholder.error(f"🚨 Error inesperado: {str(e)}")
+        return "Error en el proceso"
     
     finally:
-        if 'progress_bar' in locals():
-            progress_bar.progress(1.0, text="🏁 Proceso completado")
-            time.sleep(0.5)
-            progress_bar.empty()
+        # Limpieza final segura
+        try:
+            supervisor.update_progress(1.0, "🏁 Proceso completado")
+            await asyncio.sleep(0.5)
+            if 'progress_bar' in st.session_state:
+                st.session_state.progress_bar.empty()
+                del st.session_state.progress_bar
+        except Exception as e:
+            logger.error(f"Error en limpieza: {str(e)}")
     
     return final_text

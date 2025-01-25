@@ -1,14 +1,16 @@
 import os
 import asyncio
 import streamlit as st
-from streamlit.runtime.scriptrunner import get_script_run_ctx
 from langchain_core.messages import AIMessage, HumanMessage
 from dotenv import load_dotenv
-from astream_events_handler import invoke_our_graph
+from astream_events_handler import execute_research_flow  # Nombre actualizado
 from contextlib import contextmanager
 from datetime import datetime
+import re
+import logging
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 # Configuración inicial de la página
 st.set_page_config(
@@ -23,6 +25,14 @@ def handle_async_errors():
     """Maneja errores asíncronos y muestra mensajes en la UI"""
     try:
         yield
+    except RuntimeError as e:
+        st.error(f"🔁 Límite de iteraciones alcanzado: {str(e)}")
+        st.session_state.processing = False
+        st.rerun()
+    except asyncio.CancelledError:
+        st.warning("⏹️ Investigación detenida por el usuario")
+        st.session_state.processing = False
+        st.rerun()
     except Exception as e:
         st.error(f"🚨 Error crítico: {str(e)}")
         st.session_state.processing = False
@@ -62,6 +72,11 @@ def setup_api_key():
             st.session_state.api_keys_set = True
             st.success("✅ Claves configuradas correctamente")
             st.rerun()
+        
+        if st.sidebar.button("⏹️ Detener Investigación"):
+            if 'research_supervisor' in st.session_state:
+                st.session_state.research_supervisor.cancel_research()
+            st.rerun()  # Corregimos el método de rerun
 
 def initialize_chat():
     """Inicializa el estado del chat con al menos un mensaje"""
@@ -173,22 +188,20 @@ def main():
     setup_api_key()
     
     if not st.session_state.get("api_keys_set", False):
-        st.info("⚠️ Por favor configura tus API Keys en la barra lateral para comenzar")
+        st.info("⚠️ Configura tus API Keys en la barra lateral")
         return
 
-    show_tool_monitoring()  # Panel de supervisión
+    show_tool_monitoring()
     initialize_chat()
     show_welcome_expander()
     render_chat_history()
     
-    # Input del usuario
     if prompt := st.chat_input("Escribe tu pregunta de investigación..."):
         if st.session_state.processing:
-            st.warning("Por favor espera a que termine la operación actual")
+            st.warning("Espera a que termine la operación actual")
             return
 
         st.session_state.processing = True
-        st.session_state.expander_open = False
         st.session_state.messages.append(HumanMessage(content=prompt))
         
         with st.chat_message("user", avatar="👤"):
@@ -197,21 +210,17 @@ def main():
         with st.chat_message("assistant", avatar="🔬"):
             placeholder = st.empty()
             
-            with handle_async_errors(), st.spinner("🔍 Analizando tu consulta..."):
+            with handle_async_errors(), st.spinner("🔍 Analizando consulta..."):
                 try:
-                    response = asyncio.run(invoke_our_graph(
+                    response = asyncio.run(execute_research_flow(  # Llamada actualizada
                         st.session_state.messages,
                         placeholder
                     ))
                     
                     if response:
-                        # Limpiar el formato markdown del texto final
                         clean_response = re.sub(r"```markdown\n|\n```", "", response)
                         final_message = AIMessage(content=clean_response)
                         st.session_state.messages.append(final_message)
-                except Exception as e:
-                    st.error(f"Error en el flujo de trabajo: {str(e)}")
-                    logger.exception("Error crítico:")
                 finally:
                     st.session_state.processing = False
 
