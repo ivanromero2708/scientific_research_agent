@@ -1,14 +1,14 @@
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage, AIMessage
-from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables import RunnableConfig, Runnable
 from pydantic import ValidationError
 import logging
 import os
 import json
 from typing import Dict, Any
 
-from state import AgentState
+from state import AgentState, DecisionMakingOutput, JudgeOutput
 from agent_tools import tools
 from utils import (
     decision_making_prompt,
@@ -62,7 +62,7 @@ def setup_decision_making_node(config: GraphConfiguration):
     def _decision_making_node(state: AgentState) -> Dict[str, Any]:
         try:
             system_msg = SystemMessage(content=decision_making_prompt)
-            response = llm.with_structured_output(AgentState.DecisionMakingOutput).invoke(
+            response = llm.with_structured_output(DecisionMakingOutput).invoke(  # Usar la clase directamente
                 [system_msg] + state.messages
             )
             

@@ -32,12 +32,14 @@ class ToolExecutionTracker:
             self.progress += 1.0 / len(self.tools)
 
 def truncate_text(text: str, max_length: int = 1000) -> str:
-    """Trunca texto largo con puntos suspensivos"""
-    return text[:max_length] + "..." if len(text) > max_length else text
+    """Trunca texto largo con puntos suspensivos manteniendo contexto"""
+    if len(text) > max_length:
+        return text[:max_length//2] + "\n... [CONTENIDO TRUNCADO] ...\n" + text[-max_length//2:]
+    return text
 
 async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator.DeltaGenerator) -> str:
     """
-    Maneja el flujo de eventos asíncrono con seguimiento detallado de herramientas
+    Maneja el flujo de eventos asíncrono con seguimiento en tiempo real
     
     Args:
         st_messages: Historial de mensajes del chat
@@ -48,15 +50,18 @@ async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator
     """
     tracker = ToolExecutionTracker()
     final_text = ""
-    progress_bar = st_placeholder.progress(0.0, text="Iniciando proceso...")
+    current_progress = 0.0  # Variable independiente para el progreso
     
     try:
+        # Inicializar barra de progreso
+        progress_bar = st_placeholder.progress(0.0, text="🚀 Iniciando proceso de investigación...")
+        
         async for event in app_runnable.astream_events({"messages": st_messages}, version="v2"):
             event_type = event["event"]
             
-            # Actualizar barra de progreso
-            tracker.progress = min(tracker.progress + 0.05, 0.95)
-            progress_bar.progress(tracker.progress, text="Procesando eventos...")
+            # Actualización inteligente del progreso
+            current_progress = min(current_progress + 0.03, 0.95)
+            progress_bar.progress(current_progress, text="🔍 Analizando consulta...")
             
             if event_type == "on_chat_model_stream":
                 # Manejar streaming de tokens del modelo
@@ -72,12 +77,15 @@ async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator
                     cols = st.columns([1, 4])
                     with cols[0]:
                         st.subheader(f"🛠️ {event['name']}")
+                        st.caption(f"ID: `{tool_id[:8]}`")
                     with cols[1]:
                         with st.status(f"⚙️ Ejecutando {event['name']}...", expanded=True) as status:
-                            st.write(f"**Input:**\n`{truncate_text(str(event['data'].get('input')), 300)}`")
+                            input_data = event['data'].get('input', {})
+                            st.write(f"**Input:**\n`{truncate_text(str(input_data), 300)}`")
                             output_placeholder = st.empty()
                     
                     tracker.add_tool(tool_id, output_placeholder)
+                    st.toast(f"Iniciando herramienta: {event['name']}", icon="⚙️")
             
             elif event_type == "on_tool_end":
                 # Mostrar resultados de herramienta
@@ -86,7 +94,7 @@ async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator
                 error = event["data"].get("error")
                 
                 exec_time = time.time() - tracker.tools[tool_id]['start_time']
-                output_text = f"⏱️ Tiempo ejecución: {exec_time:.1f}s\n\n"
+                output_text = f"⏱️ **Tiempo ejecución:** {exec_time:.1f}s\n\n"
                 
                 if error:
                     output_text += f"❌ **Error:** \n```\n{truncate_text(str(error), 500)}\n```"
@@ -97,18 +105,20 @@ async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator
                 tracker.complete_tool(tool_id, output)
                 
                 # Actualizar progreso final
-                progress_bar.progress(
-                    min(tracker.progress + 0.05, 1.0),
-                    text=f"Herramienta {event['name']} completada"
-                )
+                current_progress = min(current_progress + 0.1, 0.95)
+                progress_bar.progress(current_progress, text=f"✅ {event['name']} completada")
     
     except Exception as e:
         logger.error(f"Error en el flujo de eventos: {str(e)}", exc_info=True)
         with st_placeholder:
-            st.error(f"🚨 Error crítico en el flujo: {str(e)}")
+            st.error(f"🚨 Error crítico: {str(e)}")
         return "Lo siento, hubo un error procesando tu solicitud"
     
     finally:
-        progress_bar.empty()
+        # Completar y limpiar la barra de progreso
+        if 'progress_bar' in locals():
+            progress_bar.progress(1.0, text="🏁 Proceso completado")
+            time.sleep(0.5)
+            progress_bar.empty()
     
     return final_text

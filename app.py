@@ -28,33 +28,39 @@ def handle_async_errors():
         st.rerun()
 
 def setup_api_key():
-    """Configuración segura de la API Key"""
-    st.sidebar.header("Configuración de API Keys")
+    """Configuración segura de API Keys"""
+    st.sidebar.header("🔑 Configuración de API Keys")
     
-    if 'api_keys_set' not in st.session_state:
-        st.session_state.api_keys_set = False
-        
-    with st.sidebar.expander("🔑 Configurar claves API", expanded=not st.session_state.api_keys_set):
+    with st.sidebar.expander("⚙️ Configurar claves", expanded=True):
         openai_key = st.text_input(
             "OpenAI API Key",
             type="password",
+            value=os.getenv("OPENAI_API_KEY", ""),
             help="Obtén tu clave en https://platform.openai.com/api-keys"
         )
         
         core_key = st.text_input(
             "CORE API Key", 
             type="password",
+            value=os.getenv("CORE_API_KEY", ""),
             help="Regístrate en https://core.ac.uk/services/api/"
         )
         
-        if st.button("💾 Guardar Claves"):
-            if openai_key and core_key:
-                os.environ["OPENAI_API_KEY"] = openai_key
-                os.environ["CORE_API_KEY"] = core_key
-                st.session_state.api_keys_set = True
-                st.rerun()
-            else:
-                st.warning("¡Ambas claves son requeridas!")
+        if st.button("💾 Guardar Claves", type="primary"):
+            if not openai_key.startswith("sk-"):
+                st.error("¡Clave OpenAI inválida! Debe comenzar con 'sk-'")
+                return
+                
+            if not core_key:
+                st.error("¡Clave CORE requerida!")
+                return
+                
+            # Guardar en variables de entorno y sesión
+            os.environ["OPENAI_API_KEY"] = openai_key
+            os.environ["CORE_API_KEY"] = core_key
+            st.session_state.api_keys_set = True
+            st.success("✅ Claves configuradas correctamente")
+            st.rerun()
 
 def initialize_chat():
     """Inicializa el estado del chat"""
@@ -106,7 +112,40 @@ def clear_conversation():
     st.session_state.processing = False
     st.rerun()
 
-# UI Principal
+
+def show_tool_monitoring():
+    """Muestra el panel de herramientas ejecutadas"""
+    if "tool_executions" not in st.session_state:
+        st.session_state.tool_executions = []
+    
+    with st.expander("🔍 **Supervisión de Herramientas Ejecutadas**", expanded=True):
+        if not st.session_state.tool_executions:
+            st.info("No se han ejecutado herramientas aún")
+            return
+            
+        for idx, tool in enumerate(st.session_state.tool_executions, 1):
+            with st.container(border=True):
+                cols = st.columns([1, 4])
+                with cols[0]:
+                    st.markdown(f"**Herramienta #{idx}**")
+                    st.caption(f"🕒 {tool['execution_time']:.1f}s")
+                    st.write(f"🔧 **Tipo:** {tool['name']}")
+                    status_emoji = "✅" if tool['status'] == "success" else "❌"
+                    st.write(f"{status_emoji} **Estado:** {tool['status']}")
+                
+                with cols[1]:
+                    with st.expander("📥 **Input**", expanded=False):
+                        st.json(tool["input"], expanded=False)
+                    
+                    if tool["output"]:
+                        with st.expander("📤 **Output**", expanded=False):
+                            if isinstance(tool["output"], dict):
+                                st.json(tool["output"])
+                            else:
+                                st.code(str(tool["output"]), language="text")
+                    else:
+                        st.warning("Sin output generado")
+
 def main():
     st.title("🔍 Investigador Científico Asistido por IA")
     
@@ -116,17 +155,13 @@ def main():
         st.info("⚠️ Por favor configura tus API Keys en la barra lateral para comenzar")
         return
 
+    # Nuevo: Panel de supervisión antes del chat
+    show_tool_monitoring()
+    
     initialize_chat()
-    
-    # Barra de herramientas lateral
-    st.sidebar.button("🧹 Limpiar Conversación", on_click=clear_conversation)
-    
-    # Panel de bienvenida
     show_welcome_expander()
-    
-    # Historial del chat
     render_chat_history()
-
+    
     # Input del usuario
     if prompt := st.chat_input("Escribe tu pregunta de investigación..."):
         if st.session_state.processing:
