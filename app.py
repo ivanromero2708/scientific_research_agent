@@ -1,9 +1,11 @@
+# app.py
+
 import os
 import asyncio
 import streamlit as st
 from langchain_core.messages import AIMessage, HumanMessage
 from dotenv import load_dotenv
-from astream_events_handler import execute_research_flow  # Nombre actualizado
+from astream_events_handler import execute_research_flow
 from contextlib import contextmanager
 from datetime import datetime
 import re
@@ -22,7 +24,7 @@ st.set_page_config(
 
 @contextmanager
 def handle_async_errors():
-    """Maneja errores asíncronos y muestra mensajes en la UI"""
+    """Maneja errores asíncronos y muestra mensajes en la UI."""
     try:
         yield
     except RuntimeError as e:
@@ -39,7 +41,7 @@ def handle_async_errors():
         st.rerun()
 
 def setup_api_key():
-    """Configuración segura de API Keys"""
+    """Configuración segura de API Keys."""
     st.sidebar.header("🔑 Configuración de API Keys")
     
     with st.sidebar.expander("⚙️ Configurar claves", expanded=True):
@@ -51,7 +53,7 @@ def setup_api_key():
         )
         
         core_key = st.text_input(
-            "CORE API Key", 
+            "CORE API Key",
             type="password",
             value=os.getenv("CORE_API_KEY", ""),
             help="Regístrate en https://core.ac.uk/services/api/"
@@ -61,7 +63,6 @@ def setup_api_key():
             if not openai_key:
                 st.error("¡Clave OpenAI requerida!")
                 return
-            
             if not core_key:
                 st.error("¡Clave CORE requerida!")
                 return
@@ -73,15 +74,17 @@ def setup_api_key():
             st.success("✅ Claves configuradas correctamente")
             st.rerun()
         
+        # Botón para detener la investigación
         if st.sidebar.button("⏹️ Detener Investigación"):
+            # Opcional: si guardas un supervisor en session_state
             if 'research_supervisor' in st.session_state:
                 st.session_state.research_supervisor.cancel_research()
-            st.rerun()  # Corregimos el método de rerun
+            st.rerun()
 
 def initialize_chat():
-    """Inicializa el estado del chat con al menos un mensaje"""
+    """Inicializa el estado del chat con al menos un mensaje del asistente."""
     defaults = {
-        "processing": False,  # <-- Añadir esta línea
+        "processing": False,
         "requires_research": False,
         "num_feedback_requests": 0,
         "is_good_answer": True,
@@ -100,12 +103,11 @@ def initialize_chat():
             AIMessage(content="¡La conversación se reinició! ¿Sobre qué deseas investigar?")
         ]
     
-    # Asegurar que 'processing' existe aunque no sea el primer inicio
     if "processing" not in st.session_state:
-        st.session_state.processing = False  # <-- Inicialización redundante
+        st.session_state.processing = False
 
 def render_chat_history():
-    """Renderiza el historial del chat con formato mejorado"""
+    """Renderiza el historial del chat con formato básico."""
     for msg in st.session_state.messages:
         if isinstance(msg, AIMessage):
             with st.chat_message("assistant", avatar="🔬"):
@@ -115,7 +117,7 @@ def render_chat_history():
                 st.markdown(msg.content)
 
 def show_welcome_expander():
-    """Muestra el panel de bienvenida inicial"""
+    """Muestra el panel de bienvenida inicial."""
     if "expander_open" not in st.session_state:
         st.session_state.expander_open = True
 
@@ -137,7 +139,7 @@ def show_welcome_expander():
             """)
 
 def clear_conversation():
-    """Reinicia la conversación con al menos un mensaje"""
+    """Reinicia la conversación con al menos un mensaje del asistente."""
     st.session_state.messages = [
         AIMessage(content="¡Conversación reiniciada! ¿En qué tema deseas profundizar ahora?")
     ]
@@ -145,7 +147,7 @@ def clear_conversation():
     st.rerun()
 
 def show_tool_monitoring():
-    """Muestra el panel de herramientas ejecutadas"""
+    """Muestra el panel de herramientas ejecutadas."""
     if "tool_executions" not in st.session_state:
         st.session_state.tool_executions = []
     
@@ -177,25 +179,27 @@ def show_tool_monitoring():
                     else:
                         st.warning("Sin output generado")
 
-import re
-import logging
-
-logger = logging.getLogger(__name__)
-
 def main():
     st.title("🔍 Investigador Científico Asistido por IA")
     
+    # Configura la sección lateral para ingresar las claves
     setup_api_key()
     
+    # Verifica que las claves estén configuradas
     if not st.session_state.get("api_keys_set", False):
         st.info("⚠️ Configura tus API Keys en la barra lateral")
         return
 
+    # Muestra panel de herramientas ejecutadas
     show_tool_monitoring()
+    # Inicializa la sesión de chat
     initialize_chat()
+    # Muestra la sección de bienvenida
     show_welcome_expander()
+    # Renderiza el historial del chat
     render_chat_history()
     
+    # Entrada de texto del usuario
     if prompt := st.chat_input("Escribe tu pregunta de investigación..."):
         if st.session_state.processing:
             st.warning("Espera a que termine la operación actual")
@@ -212,12 +216,16 @@ def main():
             
             with handle_async_errors(), st.spinner("🔍 Analizando consulta..."):
                 try:
-                    response = asyncio.run(execute_research_flow(  # Llamada actualizada
-                        st.session_state.messages,
-                        placeholder
-                    ))
+                    # Llamada asíncrona para ejecutar el flujo de investigación
+                    response = asyncio.run(
+                        execute_research_flow(
+                            st.session_state.messages,
+                            placeholder
+                        )
+                    )
                     
                     if response:
+                        # Limpieza de formato (quitamos ```markdown si viene en la respuesta)
                         clean_response = re.sub(r"```markdown\n|\n```", "", response)
                         final_message = AIMessage(content=clean_response)
                         st.session_state.messages.append(final_message)
