@@ -48,9 +48,13 @@ async def invoke_our_graph(st_messages: list, st_placeholder: st.delta_generator
     Returns:
         Respuesta final del asistente
     """
+    if not st_messages or not isinstance(st_messages[0], BaseMessage):
+        st_messages = [AIMessage(content="Iniciando investigación...")]
+    
     tracker = ToolExecutionTracker()
     final_text = ""
-    current_progress = 0.0  
+    current_progress = 0.0   
+    
     
     try:
         # Inicializar barra de progreso

@@ -64,10 +64,13 @@ def setup_api_key():
 
 def initialize_chat():
     """Inicializa el estado del chat con al menos un mensaje"""
-    # Si no existe la variable en session_state o está vacía, la llenamos con un mensaje inicial
-    if "messages" not in st.session_state or not st.session_state.messages:
+    if "messages" not in st.session_state:
         st.session_state.messages = [
             AIMessage(content="¡Hola! Soy tu asistente de investigación. ¿En qué tema deseas profundizar hoy?")
+        ]
+    elif not st.session_state.messages:
+        st.session_state.messages = [
+            AIMessage(content="¡La conversación se reinició! ¿Sobre qué deseas investigar?")
         ]
     
     if "processing" not in st.session_state:

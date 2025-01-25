@@ -1,4 +1,4 @@
-from typing import List, Optional, Literal, Annotated
+from typing import List, Optional, Literal, Annotated, TypedDict
 from pydantic import (
     BaseModel,
     Field,
@@ -15,115 +15,30 @@ from langchain_core.messages import (
     ToolMessage
 )
 
-class AgentState(BaseModel):
-    """
-    Estado principal del agente durante el proceso de investigación científica.
-    
-    Attributes:
-        requires_research: Indica si la consulta requiere investigación adicional
-        num_feedback_requests: Número de veces que se ha solicitado feedback
-        is_good_answer: Indica si la respuesta actual es satisfactoria
-        messages: Historial completo de mensajes de la conversación
-        created_at: Timestamp de creación del estado
-        last_updated: Timestamp de última actualización
-        research_cycles: Número de ciclos de investigación completados
-    """
-    model_config = ConfigDict(
-        validate_assignment=True,
-        frozen=False,
-        extra="forbid",
-        json_schema_extra={
-            "examples": [
-                {
-                    "requires_research": True,
-                    "num_feedback_requests": 0,
-                    "is_good_answer": False,
-                    "messages": [AIMessage(content="¿En qué tema deseas investigar?")],
-                    "research_cycles": 1
-                }
-            ]
-        }
-    )
+from datetime import datetime
 
-    requires_research: bool = Field(
-        default=False,
-        description="Indica si la consulta requiere investigación con herramientas externas"
-    )
-    
-    num_feedback_requests: int = Field(
-        default=0,
-        ge=0,
-        le=3,
-        description="Número de veces que se ha solicitado feedback humano",
-    )
-    
-    is_good_answer: bool = Field(
-        default=False,
-        description="Indica si la respuesta actual cumple con los criterios de calidad"
-    )
-    
-    messages: Annotated[
-        List[BaseMessage],
-        Field(
-            min_length=1,  # Exigimos que haya al menos un mensaje
-            description="Historial de mensajes de la conversación",
-        )
-    ]
-    
-    created_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Timestamp de creación del estado"
-    )
-    
-    last_updated: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Timestamp de última actualización"
-    )
-    
-    research_cycles: int = Field(
-        default=0,
-        ge=0,
-        le=5,
-        description="Número de ciclos completados de búsqueda e investigación"
-    )
+from langgraph.graph.message import add_messages
 
-    @field_validator('messages')
-    @classmethod
-    def validate_messages(cls, messages: List[BaseMessage]) -> List[BaseMessage]:
-        """Valida que la lista de mensajes tenga una estructura válida"""
-        if not messages:
-            raise ValueError("El estado debe contener al menos un mensaje")
-        
-        if not isinstance(messages[-1], (AIMessage, HumanMessage)):
-            raise ValueError("El último mensaje debe ser del usuario o asistente")
-            
-        return messages
+class AgentState(TypedDict):
+    requires_research: bool
+    num_feedback_requests: int
+    is_good_answer: bool
+    messages: Annotated[List[BaseMessage], add_messages]
+    research_cycles: int
+    created_at: datetime
+    last_updated: datetime
 
-    @model_validator(mode='after')
-    def validate_state_consistency(self) -> 'AgentState':
-        """Valida consistencia lógica del estado"""
-        if self.is_good_answer and self.requires_research:
-            raise ValueError("Estado inválido: respuesta marcada como buena pero requiere investigación")
-            
-        if self.num_feedback_requests > 0 and not self.requires_research:
-            raise ValueError("Estado inválido: feedback solicitado sin investigación requerida")
-            
-        return self
+def validate_messages(messages: List[BaseMessage]) -> None:
+    if not messages:
+        raise ValueError("El estado debe contener al menos un mensaje")
+    if not isinstance(messages[-1], (AIMessage, HumanMessage)):
+        raise ValueError("Último mensaje debe ser del usuario o asistente")
 
-    def add_message(self, message: BaseMessage) -> None:
-        """Añade un nuevo mensaje al estado y actualiza timestamps"""
-        self.messages.append(message)
-        self.last_updated = datetime.utcnow()
-        
-        if isinstance(message, ToolMessage):
-            self.research_cycles += 1
-
-    def reset_research_state(self) -> None:
-        """Reinicia el estado relacionado con la investigación"""
-        self.requires_research = False
-        self.num_feedback_requests = 0
-        self.research_cycles = 0
-        self.last_updated = datetime.utcnow()
+def validate_state_consistency(state: AgentState) -> None:
+    if state["is_good_answer"] and state["requires_research"]:
+        raise ValueError("Estado inconsistente: respuesta buena pero requiere investigación")
+    if state["num_feedback_requests"] > 0 and not state["requires_research"]:
+        raise ValueError("Feedback solicitado sin investigación requerida")
 
 class SearchPapersInput(BaseModel):
     """Input validado para búsquedas en CORE API"""
