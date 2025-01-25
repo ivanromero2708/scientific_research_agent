@@ -18,7 +18,7 @@ class ResearchSupervisor:
             st.session_state.research_data = {
                 "executions": [],
                 "current_cycle": 0,
-                "max_cycles": 10  # Aumentamos el límite de ciclos
+                "max_cycles": 10
             }
         
         self.tools: Dict[str, Dict[str, Any]] = {}
@@ -48,33 +48,29 @@ async def execute_research_flow(
 ) -> str:
     """
     Flujo principal de investigación con manejo robusto de errores.
-    
-    :param messages: Lista de mensajes del chat (HumanMessage, AIMessage, etc.)
-    :param placeholder: Elemento de Streamlit (e.g., st.container()) donde renderizar resultados parciales.
-    :return: Cadena con el texto final producido por el modelo.
     """
     supervisor = ResearchSupervisor()
     final_text = ""
     
     try:
-        # Inicializa la barra de progreso si no existe
+        # Inicialización del estado de herramientas
+        if "tool_executions" not in st.session_state:
+            st.session_state.tool_executions = []
+        
+        # Inicializa la barra de progreso
         if "progress_bar" not in st.session_state:
             st.session_state.progress_bar = placeholder.progress(0, text="🚀 Iniciando investigación...")
-        
-        # Variable numérica para almacenar el progreso actual
-        if "current_progress" not in st.session_state:
             st.session_state.current_progress = 0.0
 
         # Inicia el stream asincrónico del grafo
         research_stream = app_runnable.astream_events(
             {"messages": messages}, 
             version="v2",
-            config={"recursion_limit": 20}  # Reducimos un poco la recursión
+            config={"recursion_limit": 30}  # Aumentamos el límite de recursión
         )
         
         async for event in research_stream:
             if supervisor._cancelled:
-                # Si se ha cancelado la investigación, se lanza una excepción
                 raise asyncio.CancelledError()
 
             event_type = event["event"]
@@ -87,7 +83,7 @@ async def execute_research_flow(
                 if st.session_state.research_data["current_cycle"] > st.session_state.research_data["max_cycles"]:
                     raise RuntimeError("🔬 Límite máximo de ciclos alcanzado. Revisa los parámetros de búsqueda.")
             
-            # Actualización de progreso dinámico según el tipo de evento
+            # Actualización de progreso dinámico
             progress_weights = {
                 "on_tool_start": 0.1,
                 "on_tool_end": 0.2,
@@ -105,32 +101,34 @@ async def execute_research_flow(
 
             # Procesamiento de eventos relevantes
             if event_type == "on_chat_model_stream":
-                # Actualiza el texto parcial en pantalla
                 final_text += event["data"]["chunk"].content
                 placeholder.markdown(f"```markdown\n{final_text}\n```")
 
             elif event_type == "on_tool_start":
-                # Registro de la herramienta que se va a utilizar
+                # Registro persistente de la herramienta
                 tool_data = {
                     "id": event["run_id"][:8],
                     "name": event["name"],
                     "input": event["data"].get("input", {}),
-                    "start_time": time.time()
+                    "start_time": time.time(),
+                    "output": None,
+                    "status": "running",
+                    "execution_time": None
                 }
                 
-                with placeholder.container():
-                    cols = st.columns([1, 3])
-                    cols[0].subheader(f"🛠️ {tool_data['name']}")
-                    cols[0].caption(f"ID: `{tool_data['id']}`")
-                    with cols[1].expander("⚙️ Detalles de ejecución", expanded=True):
-                        st.json(tool_data["input"], expanded=False)
-                
-                st.session_state.research_data["executions"].append(tool_data)
+                st.session_state.tool_executions.append(tool_data)
                 st.toast(f"Iniciando: {tool_data['name']}", icon="⚡")
 
             elif event_type == "on_tool_end":
+                # Actualización del estado de la herramienta
                 output = event["data"].get("output", {})
                 error = event["data"].get("error")
+                
+                if st.session_state.tool_executions:
+                    last_tool = st.session_state.tool_executions[-1]
+                    last_tool["output"] = output
+                    last_tool["status"] = "error" if error else "success"
+                    last_tool["execution_time"] = time.time() - last_tool["start_time"]
                 
                 with placeholder.container():
                     if error:
@@ -140,7 +138,6 @@ async def execute_research_flow(
                         st.json(output, expanded=False)
 
     except asyncio.CancelledError:
-        # Manejo de cancelación asíncrona
         logger.warning("Investigación cancelada por el usuario")
         placeholder.warning("⏹️ Investigación detenida a petición del usuario")
         return "Operación cancelada"
@@ -151,22 +148,18 @@ async def execute_research_flow(
         return "Límite máximo de iteraciones alcanzado"
     
     except Exception as e:
-        # Cualquier otro error crítico
         logger.error(f"Error crítico: {str(e)}", exc_info=True)
         placeholder.error(f"🚨 Error inesperado: {str(e)}")
         return "Error en el proceso"
     
     finally:
-        # Limpieza final segura
         try:
             supervisor.update_progress(1.0, "🏁 Proceso completado")
             await asyncio.sleep(0.5)
-            # Quita el widget de progreso
             if "progress_bar" in st.session_state:
                 st.session_state.progress_bar.empty()
                 del st.session_state.progress_bar
             
-            # Resetea el valor de progreso
             st.session_state.current_progress = 0.0
         except Exception as e:
             logger.error(f"Error en limpieza: {str(e)}")

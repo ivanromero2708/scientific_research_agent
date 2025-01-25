@@ -176,15 +176,17 @@ def create_workflow() -> Runnable:
 
     # Should continue function
     def should_continue(state: AgentState):
-        """Check if the agent should continue or end."""
-        messages = state["messages"]
-        last_message = messages[-1]
-        
-        # Condiciones más robustas
+        last_message = state["messages"][-1]
         has_tool_calls = hasattr(last_message, 'tool_calls') and last_message.tool_calls
-        requires_research = state.get("requires_research", False)
+        max_cycles_reached = state.get("research_cycles", 0) >= config.max_research_cycles
         
-        return "continue" if has_tool_calls or requires_research else "end"
+        # Condiciones de parada adicionales
+        error_in_last_step = "error" in last_message.content.lower()
+        no_relevant_results = "no relevant" in last_message.content.lower()
+        
+        return "continue" if (has_tool_calls and not max_cycles_reached 
+                            and not error_in_last_step 
+                            and not no_relevant_results) else "end"
 
     def router(state: AgentState):
         """Router directing the user query"""

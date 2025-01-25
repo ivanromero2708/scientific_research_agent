@@ -1,4 +1,5 @@
 # agent_tools.py
+
 from typing import Optional, List
 from pydantic import Field, BaseModel, field_validator, ConfigDict
 import pdfplumber
@@ -8,19 +9,12 @@ import os
 import io
 import re
 from dotenv import load_dotenv
-
-# Import específico de Streamlit si se necesitan funciones de feedback
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
-
 from langchain_core.tools import tool
-
-# Import de la clase de validación para el input de busqueda
 from state import SearchPapersInput
 
-# Carga variables de entorno (CORE_API_KEY, etc.)
 load_dotenv()
-
 
 class CoreAPIWrapper(BaseModel):
     """Wrapper para la API de CORE con manejo avanzado de errores."""
@@ -44,56 +38,59 @@ class CoreAPIWrapper(BaseModel):
     @field_validator("api_key")
     @classmethod
     def validate_api_key(cls, value: str) -> str:
-        """Valida que la API Key esté configurada."""
         if not value:
             raise ValueError("CORE_API_KEY no encontrada en variables de entorno.")
         return value
 
     def _execute_api_request(self, query: str) -> dict:
-        """Ejecuta una solicitud a la API de CORE con reintentos y control de errores."""
         http = urllib3.PoolManager(
             retries=urllib3.Retry(
                 total=5,
-                backoff_factor=1,
-                status_forcelist=[500, 502, 503, 504]
+                backoff_factor=2,
+                status_forcelist=[429, 500, 502, 503, 504]
             )
         )
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "User-Agent": "ScientificResearchAgent/2.0 (+https://github.com/ivanromero2708/scientific_research_agent)"
+            "User-Agent": "ScientificResearchAgent/2.0 (contact: tu@email.com)",
+            "Accept": "application/json"
         }
 
         try:
             response = http.request(
-                method='GET',
-                url=f"{self.base_url}/search/outputs",
+                'GET',
+                f"{self.base_url}/search/outputs",
                 headers=headers,
                 fields={
                     "q": query,
                     "limit": self.top_k_results,
-                    "sort": "publishedDate:desc"
+                    "sort": "relevance:desc"
                 },
-                timeout=10.0
+                timeout=15.0
             )
             
             if response.status == 200:
                 return response.json()
+            elif response.status == 429:
+                return {"error": "Límite de tasa excedido. Espere antes de hacer nuevas consultas."}
             else:
                 return {"error": f"Error HTTP {response.status}"}
             
         except Exception as e:
             return {"error": f"Error de conexión: {str(e)}"}
 
-    def search(self, query: str) -> dict:
-        """
-        Realiza una búsqueda académica estructurada en CORE.
+    def _filter_relevant_results(self, results: list, query: str) -> list:
+        keywords = [kw.lower() for kw in re.split(r'\W+', query) if kw]
+        filtered = []
+        for paper in results:
+            title = paper.get("title", "").lower()
+            abstract = paper.get("abstract", "").lower()
+            if any(kw in title or kw in abstract for kw in keywords):
+                filtered.append(paper)
+        return filtered
 
-        Retorna un dict con:
-          - status ("success" o "error")
-          - results_count (número de papers)
-          - papers (lista de papers con título, autores, etc.)
-        """
+    def search(self, query: str) -> dict:
         try:
             response = self._execute_api_request(query)
             
@@ -104,16 +101,19 @@ class CoreAPIWrapper(BaseModel):
                     "message": response["error"]
                 }
             
-            results = response.get("results", [])
-            if not results:
+            raw_results = response.get("results", [])
+            filtered_results = self._filter_relevant_results(raw_results, query)
+            
+            if not filtered_results:
                 return {
                     "status": "success",
                     "results_count": 0,
-                    "papers": []
+                    "papers": [],
+                    "message": "No se encontraron resultados relevantes."
                 }
 
             formatted_results = []
-            for paper in results[:self.top_k_results]:
+            for paper in filtered_results[:self.top_k_results]:
                 authors = [
                     f"{a.get('given', '')} {a.get('family', '')}".strip()
                     for a in paper.get("authors", [])
@@ -123,7 +123,7 @@ class CoreAPIWrapper(BaseModel):
                     "title": paper.get("title", "Sin título"),
                     "id": paper.get("id"),
                     "publication_date": paper.get("publishedDate") or paper.get("yearPublished"),
-                    "authors": authors[:5],  # Limita la lista de autores
+                    "authors": authors[:5],
                     "urls": paper.get("sourceFulltextUrls", []),
                     "abstract": (paper.get("abstract") or "")[:500]
                 })
@@ -141,7 +141,6 @@ class CoreAPIWrapper(BaseModel):
                 "message": str(e)
             }
 
-
 @tool("search-papers", args_schema=SearchPapersInput)
 def search_papers(query: str, max_papers: int = 3) -> dict:
     """
@@ -157,17 +156,23 @@ def search_papers(query: str, max_papers: int = 3) -> dict:
             "message": f"Fallo en search_papers: {str(e)}"
         }
 
-
 @tool("download-paper")
 def download_paper(url: str) -> dict:
     """
     Descarga y extrae texto de un documento científico en PDF, dado su URL.
 
-    Retorna un dict con:
-      - status ("success" o "error")
-      - pages_processed (número de páginas procesadas)
-      - content (texto extraído hasta 15,000 caracteres)
-      - warnings (si se trunca texto)
+    Args:
+        url: URL válida de un documento PDF
+
+    Retorna:
+        dict: Resultado con estructura:
+        {
+            "status": "success"|"error",
+            "url": str,
+            "pages_processed": int,
+            "content": str,
+            "warnings": List[str]
+        }
     """
     result_template = {
         "status": "success",
@@ -178,7 +183,6 @@ def download_paper(url: str) -> dict:
     }
 
     try:
-        # Validación de URL
         if not re.match(r'^https?://', url):
             raise ValueError("URL debe usar HTTP/HTTPS")
         
@@ -187,12 +191,11 @@ def download_paper(url: str) -> dict:
             timeout=urllib3.Timeout(connect=15.0, read=30.0)
         )
         
-        # Reintentos básicos de descarga
         for attempt in range(3):
             try:
                 response = http.request(
-                    method='GET',
-                    url=url,
+                    'GET',
+                    url,
                     headers={
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
                     }
@@ -201,23 +204,19 @@ def download_paper(url: str) -> dict:
                 if response.status != 200:
                     raise ConnectionError(f"HTTP Error {response.status}")
                     
-                # Verificar tipo de contenido
                 content_type = response.headers.get('Content-Type', '')
                 if 'pdf' not in content_type.lower():
                     raise ValueError(f"Contenido no es PDF: {content_type}")
                     
-                # Procesar PDF
                 with pdfplumber.open(io.BytesIO(response.data)) as pdf:
                     result_template["pages_processed"] = len(pdf.pages)
                     text_content = []
                     
-                    # Extraer texto de las primeras 50 páginas
                     for page in pdf.pages[:50]:
                         text = page.extract_text() or ""
                         text_content.append(text)
                     
                     full_text = "\n".join(text_content)
-                    # Limitar a 15,000 caracteres
                     result_template["content"] = full_text[:15000]
                     
                     if len(full_text) > 15000:
@@ -228,10 +227,9 @@ def download_paper(url: str) -> dict:
                     return result_template
 
             except Exception as e:
-                # Si es el último intento, relanzar la excepción
                 if attempt == 2:
                     raise
-                time.sleep(2 ** (attempt + 1))  # Exponencial backoff
+                time.sleep(2 ** (attempt + 1))
                 
     except Exception as e:
         return {
@@ -241,36 +239,38 @@ def download_paper(url: str) -> dict:
             "url": url
         }
 
-
 @tool("ask-human-feedback")
 def ask_human_feedback(question: str) -> str:
     """
     Solicita retroalimentación/confirmación humana sobre la pregunta especificada.
-    - Modo Streamlit: se muestra una entrada de texto para el usuario.
-    - Modo CLI/Consola: usa `input()`.
-
-    Ejemplo: {"question": "¿Debería priorizar resultados recientes o históricos?"}
+    
+    Args:
+        question: Pregunta a mostrar al usuario
+        
+    Returns:
+        str: Respuesta del usuario
     """
     ctx = get_script_run_ctx()
     
-    # Modo Streamlit
     if ctx and hasattr(st, 'session_state'):
         key = f"human_feedback_{hash(question)}"
         if key not in st.session_state:
             with st.chat_message("assistant"):
-                st.markdown(f"**Asistente requiere confirmación:**\n{question}")
+                st.markdown(f"**Confirmación Requerida:**\n{question}")
                 st.session_state[key] = st.text_input("Tu respuesta:", key=key)
-                # Forzamos un rerun para que se actualice la UI inmediatamente
-                st.rerun()
+                
+                if st.button("Enviar Respuesta", key=f"{key}_button"):
+                    st.rerun()
+            
+            st.stop()
+        
         return st.session_state.get(key, "")
     
-    # Modo CLI/Consola
     return input(f"\n[FEEDBACK REQUERIDO] {question}\nTu respuesta: ")
 
-
-# Lista de herramientas disponibles para el agente.
+# Lista de herramientas disponibles para el agente
 tools = [
     search_papers,
-    download_paper,
+    download_paper,  # ¡Ahora está incluida!
     ask_human_feedback
 ]
