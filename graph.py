@@ -40,7 +40,7 @@ class GraphConfiguration:
         return ChatOpenAI(
             model=self.llm_model,
             temperature=self.llm_temperature,
-            #model_kwargs={"response_format": {"type": "json_object"}}
+            model_kwargs={"response_format": {"type": "json_object"}}
         )
 
 def setup_decision_making_node(config: GraphConfiguration) -> Callable[[AgentState], Dict[str, Any]]:
@@ -179,20 +179,16 @@ def create_workflow() -> Runnable:
         """Check if the agent should continue or end."""
         messages = state["messages"]
         last_message = messages[-1]
+        
+        # Condiciones más robustas
+        has_tool_calls = hasattr(last_message, 'tool_calls') and last_message.tool_calls
+        requires_research = state.get("requires_research", False)
+        
+        return "continue" if has_tool_calls or requires_research else "end"
 
-        # End execution if there are no tool calls
-        if last_message.tool_calls:
-            return "continue"
-        else:
-            return "end"
-    
-    # Task router function
     def router(state: AgentState):
-        """Router directing the user query to the appropriate branch of the workflow."""
-        if state["requires_research"]:
-            return "planning"
-        else:
-            return "end"
+        """Router directing the user query"""
+        return "planning" if state["requires_research"] else "end"
     
     # Final answer router function
     def final_answer_router(state: AgentState):

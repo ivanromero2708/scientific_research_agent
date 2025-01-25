@@ -211,6 +211,8 @@ def download_paper(url: str) -> dict:
             "url": url
         }
 
+import streamlit as st
+
 @tool("ask-human-feedback")
 def ask_human_feedback(question: str) -> str:
     """

@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 class ToolExecutionTracker:
     """Clase para manejar el estado de ejecución de herramientas"""
     def __init__(self):
+        if "tool_executions" not in st.session_state:
+            st.session_state.tool_executions = []
+        
         self.tools = {}
         self.start_time = time.time()
         self.progress = 0.0
@@ -25,11 +28,15 @@ class ToolExecutionTracker:
         }
     
     def complete_tool(self, tool_id: str, output: str):
-        """Marca una herramienta como completada"""
         if tool_id in self.tools:
-            self.tools[tool_id]['execution_time'] = time.time() - self.tools[tool_id]['start_time']
-            self.tools[tool_id]['output'] = output
-            self.progress += 1.0 / len(self.tools)
+            tool_data = {
+                "name": self.tools[tool_id]['container']._kwargs["label"],
+                "execution_time": time.time() - self.tools[tool_id]['start_time'],
+                "input": self.tools[tool_id]['input'],
+                "output": output,
+                "status": "success" if not isinstance(output, dict) or "error" not in output else "error"
+            }
+            st.session_state.tool_executions.append(tool_data)
 
 def truncate_text(text: str, max_length: int = 1000) -> str:
     """Trunca texto largo con puntos suspensivos manteniendo contexto"""

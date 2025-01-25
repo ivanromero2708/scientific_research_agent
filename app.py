@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from dotenv import load_dotenv
 from astream_events_handler import invoke_our_graph
 from contextlib import contextmanager
+from datetime import datetime
 
 load_dotenv()
 
@@ -64,17 +65,29 @@ def setup_api_key():
 
 def initialize_chat():
     """Inicializa el estado del chat con al menos un mensaje"""
+    defaults = {
+        "processing": False,  # <-- Añadir esta línea
+        "requires_research": False,
+        "num_feedback_requests": 0,
+        "is_good_answer": True,
+        "research_cycles": 0,
+        "created_at": datetime.now(),
+        "last_updated": datetime.now()
+    }
+    
     if "messages" not in st.session_state:
         st.session_state.messages = [
             AIMessage(content="¡Hola! Soy tu asistente de investigación. ¿En qué tema deseas profundizar hoy?")
         ]
+        st.session_state.update(defaults)
     elif not st.session_state.messages:
         st.session_state.messages = [
             AIMessage(content="¡La conversación se reinició! ¿Sobre qué deseas investigar?")
         ]
     
+    # Asegurar que 'processing' existe aunque no sea el primer inicio
     if "processing" not in st.session_state:
-        st.session_state.processing = False
+        st.session_state.processing = False  # <-- Inicialización redundante
 
 def render_chat_history():
     """Renderiza el historial del chat con formato mejorado"""
@@ -149,6 +162,11 @@ def show_tool_monitoring():
                     else:
                         st.warning("Sin output generado")
 
+import re
+import logging
+
+logger = logging.getLogger(__name__)
+
 def main():
     st.title("🔍 Investigador Científico Asistido por IA")
     
@@ -187,10 +205,13 @@ def main():
                     ))
                     
                     if response:
-                        st.session_state.messages.append(AIMessage(content=response))
-                        st.session_state.processing = False
+                        # Limpiar el formato markdown del texto final
+                        clean_response = re.sub(r"```markdown\n|\n```", "", response)
+                        final_message = AIMessage(content=clean_response)
+                        st.session_state.messages.append(final_message)
                 except Exception as e:
                     st.error(f"Error en el flujo de trabajo: {str(e)}")
+                    logger.exception("Error crítico:")
                 finally:
                     st.session_state.processing = False
 

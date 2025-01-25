@@ -27,6 +27,8 @@ class AgentState(TypedDict):
     research_cycles: int
     created_at: datetime
     last_updated: datetime
+    # Añadir valores por defecto
+    model_config = ConfigDict(extra="allow")
 
 def validate_messages(messages: List[BaseMessage]) -> None:
     if not messages:
