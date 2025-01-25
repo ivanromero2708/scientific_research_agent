@@ -1,72 +1,162 @@
 import os
-from dotenv import load_dotenv
-
-import streamlit as st
-from langchain_core.messages import AIMessage, HumanMessage
 import asyncio
-
-from astream_events_handler import invoke_our_graph   # Utility function to handle events from astream_events from graph
+import streamlit as st
+from streamlit.runtime.scriptrunner import get_script_run_ctx
+from langchain_core.messages import AIMessage, HumanMessage
+from dotenv import load_dotenv
+from astream_events_handler import invoke_our_graph
+from contextlib import contextmanager
 
 load_dotenv()
 
-st.title("Agent Researcher 🤝 LangGraph")
-st.markdown("#### Chat Streaming and Tool Calling using Astream Events for Researching with the CORE API")
+# Configuración inicial de la página
+st.set_page_config(
+    page_title="Investigador Científico IA",
+    page_icon="🔬",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# Initialize the expander state
-if "expander_open" not in st.session_state:
-    st.session_state.expander_open = True
+@contextmanager
+def handle_async_errors():
+    """Maneja errores asíncronos y muestra mensajes en la UI"""
+    try:
+        yield
+    except Exception as e:
+        st.error(f"🚨 Error crítico: {str(e)}")
+        st.session_state.processing = False
+        st.rerun()
 
-# Check if the OpenAI API key is set
-if not os.getenv('OPENAI_API_KEY'):
-    # If not, display a sidebar input for the user to provide the API key
-    st.sidebar.header("OPENAI_API_KEY Setup")
-    api_key = st.sidebar.text_input(label="API Key", type="password", label_visibility="collapsed")
-    os.environ["OPENAI_API_KEY"] = api_key
-    # If no key is provided, show an info message and stop further execution and wait till key is entered
-    if not api_key:
-        st.info("Please enter your OPENAI_API_KEY in the sidebar.")
-        st.stop()
+def setup_api_key():
+    """Configuración segura de la API Key"""
+    st.sidebar.header("Configuración de API Keys")
+    
+    if 'api_keys_set' not in st.session_state:
+        st.session_state.api_keys_set = False
+        
+    with st.sidebar.expander("🔑 Configurar claves API", expanded=not st.session_state.api_keys_set):
+        openai_key = st.text_input(
+            "OpenAI API Key",
+            type="password",
+            help="Obtén tu clave en https://platform.openai.com/api-keys"
+        )
+        
+        core_key = st.text_input(
+            "CORE API Key", 
+            type="password",
+            help="Regístrate en https://core.ac.uk/services/api/"
+        )
+        
+        if st.button("💾 Guardar Claves"):
+            if openai_key and core_key:
+                os.environ["OPENAI_API_KEY"] = openai_key
+                os.environ["CORE_API_KEY"] = core_key
+                st.session_state.api_keys_set = True
+                st.rerun()
+            else:
+                st.warning("¡Ambas claves son requeridas!")
 
-# Capture user input from chat input
-prompt = st.chat_input()
+def initialize_chat():
+    """Inicializa el estado del chat"""
+    if "messages" not in st.session_state:
+        st.session_state.messages = [
+            AIMessage(content="¡Hola! Soy tu asistente de investigación. ¿En qué tema deseas profundizar hoy?")
+        ]
+    
+    if "processing" not in st.session_state:
+        st.session_state.processing = False
 
-# Toggle expander state based on user input
-if prompt is not None:
-    st.session_state.expander_open = False  # Close the expander when the user starts typing
+def render_chat_history():
+    """Renderiza el historial del chat con formato mejorado"""
+    for msg in st.session_state.messages:
+        if isinstance(msg, AIMessage):
+            with st.chat_message("assistant", avatar="🔬"):
+                st.markdown(msg.content)
+        elif isinstance(msg, HumanMessage):
+            with st.chat_message("user", avatar="👤"):
+                st.markdown(msg.content)
 
-# st write magic
-with st.expander(label="Asynchronous Research Assistant with LangGraph's Astream Events", expanded=st.session_state.expander_open):
-    """
-    This example demonstrates how to build an interactive research assistant powered by [_LangGraph_](https://langchain-ai.github.io/langgraph/)
-    and its asynchronous [`astream_events (v2)`](https://langchain-ai.github.io/langgraph/how-tos/streaming-from-final-node/).
-    The implementation avoids using callbacks or external libraries, making it fully compatible with Streamlit.
+def show_welcome_expander():
+    """Muestra el panel de bienvenida inicial"""
+    if "expander_open" not in st.session_state:
+        st.session_state.expander_open = True
 
-    Key features include:
-    - `on_llm_new_token`: Streams tokens from the ChatLLM model as they are generated.
-    - `on_tool_start`: Triggers during the initialization of any tool call, supporting multiple invocations.
-    - `on_tool_end`: Captures and displays the final result of tool calls for seamless interaction.
-    """
+    if st.session_state.expander_open:
+        with st.expander("🚀 Bienvenido al Investigador Científico IA", expanded=True):
+            st.markdown("""
+            ### Características Principales:
+            - **Búsqueda Inteligente**: Acceso a millones de artículos científicos mediante la API de CORE
+            - **Análisis de PDF**: Extracción y análisis de contenido de documentos científicos
+            - **Colaboración Humano-AI**: Integración fluida para feedback y validaciones
 
-# Initialize chat messages in session state
-if "messages" not in st.session_state:
-    st.session_state["messages"] = [AIMessage(content="What is going to be your research question?")]
+            ### 📚 Flujo de Trabajo:
+            1. Ingresa tu pregunta de investigación
+            2. El agente planifica y ejecuta búsquedas
+            3. Revisa los resultados y provee feedback
+            4. Genera reportes ejecutivos automáticamente
 
-# Loop through all messages in the session state and render them as a chat on every st.refresh mech
-for msg in st.session_state.messages:
-    # https://docs.streamlit.io/develop/api-reference/chat/st.chat_message
-    # we store them as AIMessage and HumanMessage as its easier to send to LangGraph
-    if isinstance(msg, AIMessage):
-        st.chat_message("assistant").write(msg.content)
-    elif isinstance(msg, HumanMessage):
-        st.chat_message("user").write(msg.content)
+            *¡Comienza escribiendo tu pregunta en el chat!*
+            """)
 
-# Handle user input if provided
-if prompt:
-    st.session_state.messages.append(HumanMessage(content=prompt))
-    st.chat_message("user").write(prompt)
+def clear_conversation():
+    """Reinicia la conversación"""
+    st.session_state.messages = [
+        AIMessage(content="¡Conversación reiniciada! ¿En qué tema deseas profundizar ahora?")
+    ]
+    st.session_state.processing = False
+    st.rerun()
 
-    with st.chat_message("assistant"):
-        # create a placeholder container for streaming and any other events to visually render here
-        placeholder = st.container()
-        response = asyncio.run(invoke_our_graph(st.session_state.messages, placeholder))
-        st.session_state.messages.append(AIMessage(response))
+# UI Principal
+def main():
+    st.title("🔍 Investigador Científico Asistido por IA")
+    
+    setup_api_key()
+    
+    if not st.session_state.get("api_keys_set", False):
+        st.info("⚠️ Por favor configura tus API Keys en la barra lateral para comenzar")
+        return
+
+    initialize_chat()
+    
+    # Barra de herramientas lateral
+    st.sidebar.button("🧹 Limpiar Conversación", on_click=clear_conversation)
+    
+    # Panel de bienvenida
+    show_welcome_expander()
+    
+    # Historial del chat
+    render_chat_history()
+
+    # Input del usuario
+    if prompt := st.chat_input("Escribe tu pregunta de investigación..."):
+        if st.session_state.processing:
+            st.warning("Por favor espera a que termine la operación actual")
+            return
+
+        st.session_state.processing = True
+        st.session_state.expander_open = False
+        st.session_state.messages.append(HumanMessage(content=prompt))
+        
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(prompt)
+
+        with st.chat_message("assistant", avatar="🔬"):
+            placeholder = st.empty()
+            
+            with handle_async_errors(), st.spinner("🔍 Analizando tu consulta..."):
+                try:
+                    response = asyncio.run(invoke_our_graph(
+                        st.session_state.messages,
+                        placeholder
+                    ))
+                    
+                    if response:
+                        st.session_state.messages.append(AIMessage(content=response))
+                        st.session_state.processing = False
+                except Exception as e:
+                    st.error(f"Error en el flujo de trabajo: {str(e)}")
+                finally:
+                    st.session_state.processing = False
+
+if __name__ == "__main__":
+    main()
